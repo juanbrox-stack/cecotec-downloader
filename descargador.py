@@ -3,13 +3,16 @@ import pandas as pd
 import requests
 import io
 
-# Configuración de la página
-st.set_page_config(page_title="Cecotec Feed Downloader", page_icon="⚡")
+# 1. Configuración visual de la aplicación
+st.set_page_config(page_title="Cecotec Feed Downloader", page_icon="⚡", layout="centered")
 
 st.title("📦 Cecotec Feed Downloader")
-st.markdown("Selecciona los países para descargar sus catálogos en formato Excel.")
+st.markdown("""
+Esta herramienta descarga los catálogos de productos (feeds) de los diferentes países, 
+limpia los errores de formato y genera archivos Excel listos para usar.
+""")
 
-# Diccionario de feeds
+# 2. Diccionario con las URLs de los feeds
 FEEDS = {
     "España (ES)": "https://cecotec.es/api/v3/doofinder/feed/?lang=es",
     "Francia (FR)": "https://storececotec.fr/api/v3/doofinder/feed/?lang=fr",
@@ -18,48 +21,66 @@ FEEDS = {
     "Portugal (PT)": "https://cecotec.pt/api/v3/doofinder/feed/?lang=pt"
 }
 
-# Selector en la barra lateral
-opcion = st.selectbox("¿Qué país deseas procesar?", ["Todos"] + list(FEEDS.keys()))
-
-def procesar_feed(url):
-    response = requests.get(url)
-    response.raise_for_status()
-    # Procesamos el CSV con separador |
-    df = pd.read_csv(io.StringIO(response.text), sep='|', engine='python')
-    return df
-
-if st.button("Generar Archivo(s)"):
+def procesar_feed(nombre, url):
+    """Descarga el contenido y lo convierte a DataFrame ignorando líneas corruptas"""
     try:
-        if opcion == "Todos":
-            for pais, url in FEEDS.items():
-                df = procesar_feed(url)
-                nombre_limpio = pais.split(' ')[0]
-                
-                # Botón de descarga para cada país
-                excel_data = io.BytesIO()
-                df.to_excel(excel_data, index=False)
-                st.download_button(
-                    label=f"⬇️ Descargar Excel {nombre_limpio}",
-                    data=excel_data.getvalue(),
-                    file_name=f"feed_{nombre_limpio}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-        else:
-            with st.spinner(f"Descargando datos de {opcion}..."):
-                df = procesar_feed(FEEDS[opcion])
-                nombre_limpio = opcion.split(' ')[0]
-                
-                # Convertir DF a Excel en memoria
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    df.to_excel(writer, index=False)
-                
-                st.success(f"¡Datos de {nombre_limpio} listos!")
-                st.download_button(
-                    label="⬇️ Descargar Archivo Excel",
-                    data=output.getvalue(),
-                    file_name=f"feed_{nombre_limpio}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        
+        # Lectura robusta: separador |, ignora líneas con errores (como las de FR/DE)
+        df = pd.read_csv(
+            io.StringIO(response.text), 
+            sep='|', 
+            engine='python',
+            on_bad_lines='skip', 
+            quoting=3,
+            encoding='utf-8'
+        )
+        return df
     except Exception as e:
-        st.error(f"Error al conectar con el servidor: {e}")
+        st.error(f"❌ Error al procesar {nombre}: {e}")
+        return None
+
+def convertir_a_excel(df):
+    """Convierte el DataFrame a un objeto Excel en memoria"""
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False)
+    return output.getvalue()
+
+# 3. Interfaz de usuario
+opcion = st.selectbox("Selecciona el destino:", ["--- Seleccionar Todo ---"] + list(FEEDS.keys()))
+
+if st.button("🚀 Iniciar Procesamiento"):
+    if opcion == "--- Seleccionar Todo ---":
+        progreso = st.progress(0)
+        paises = list(FEEDS.items())
+        
+        for i, (nombre, url) in enumerate(paises):
+            with st.status(f"Procesando {nombre}...", expanded=False):
+                df_resultado = procesar_feed(nombre, url)
+                if df_resultado is not None:
+                    excel_bin = convertir_a_excel(df_resultado)
+                    st.download_button(
+                        label=f"⬇️ Descargar Excel {nombre}",
+                        data=excel_bin,
+                        file_name=f"feed_{nombre.split(' ')[0]}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key=f"btn_{nombre}"
+                    )
+            # Actualizar barra de progreso
+            progreso.progress((i + 1) / len(paises))
+        st.success("✅ ¡Todos los países procesados!")
+        
+    else:
+        with st.spinner(f"Preparando datos de {opcion}..."):
+            df_resultado = procesar_feed(opcion, FEEDS[opcion])
+            if df_resultado is not None:
+                excel_bin = convertir_a_excel(df_resultado)
+                st.success(f"¡Listo! El archivo de {opcion} se ha generado correctamente.")
+                st.download_button(
+                    label=f"⬇️ Descargar Excel {opcion}",
+                    data=excel_bin,
+                    file_name=f"feed_{opcion.split(' ')[0]}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
