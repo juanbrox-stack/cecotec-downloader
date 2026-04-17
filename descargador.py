@@ -3,13 +3,13 @@ import pandas as pd
 import requests
 import io
 
-# 1. Configuración visual
+# 1. Configuración de la App
 st.set_page_config(page_title="Cecotec Feed Downloader", page_icon="⚡", layout="centered")
 
 st.title("📦 Cecotec Feed Downloader Pro")
-st.markdown("Genera Excels con enlaces directos a productos.")
+st.markdown("Genera Excels con enlaces directos corregidos por país.")
 
-# URLs de los feeds (Origen de datos)
+# Origen de los datos (APIs)
 FEEDS = {
     "España (ES)": "https://cecotec.es/api/v3/doofinder/feed/?lang=es",
     "Francia (FR)": "https://storececotec.fr/api/v3/doofinder/feed/?lang=fr",
@@ -18,13 +18,13 @@ FEEDS = {
     "Portugal (PT)": "https://cecotec.pt/api/v3/doofinder/feed/?lang=pt"
 }
 
-# Dominios base para concatenar enlaces
+# Dominios base específicos según tu estructura
 DOMINIOS = {
     "España (ES)": "https://cecotec.es",
-    "Francia (FR)": "https://cecotec.fr",
-    "Italia (IT)": "https://cecotec.it",
-    "Alemania (DE)": "https://cecotec.de",
-    "Portugal (PT)": "https://cecotec.pt"
+    "Francia (FR)": "https://www.storececotec.fr/fr",
+    "Italia (IT)": "https://storececotec.it/it",
+    "Alemania (DE)": "https://storececotec.de/de",
+    "Portugal (PT)": "https://cecotec.pt/pt"
 }
 
 def procesar_feed(nombre, url):
@@ -32,6 +32,7 @@ def procesar_feed(nombre, url):
         response = requests.get(url, timeout=30)
         response.raise_for_status()
         
+        # Lectura robusta para saltar líneas corruptas en FR/DE/IT
         df = pd.read_csv(
             io.StringIO(response.text), 
             sep='|', 
@@ -42,14 +43,16 @@ def procesar_feed(nombre, url):
         )
 
         # Lógica de concatenación de enlaces
-        # Buscamos la columna 'link' (usualmente en posición 3 o por nombre)
         if 'link' in df.columns:
             dominio_base = DOMINIOS[nombre]
             
-            # Limpiamos el link: si empieza por '/', lo quitamos para concatenar bien
-            df['link'] = df['link'].astype(str).str.lstrip('/')
+            # 1. Limpiamos espacios en blanco
+            df['link'] = df['link'].astype(str).str.strip()
             
-            # Concatenamos: dominio + / + link
+            # 2. Quitamos la barra inicial si la tiene para evitar doble barra //
+            df['link'] = df['link'].str.lstrip('/')
+            
+            # 3. Concatenamos: dominio_base + / + link_del_feed
             df['link'] = dominio_base + '/' + df['link']
             
         return df
@@ -63,10 +66,10 @@ def convertir_a_excel(df):
         df.to_excel(writer, index=False)
     return output.getvalue()
 
-# Interfaz
-opcion = st.selectbox("Selecciona el país:", ["--- Seleccionar Todo ---"] + list(FEEDS.keys()))
+# --- Interfaz de Usuario ---
+opcion = st.selectbox("Selecciona el país de destino:", ["--- Seleccionar Todo ---"] + list(FEEDS.keys()))
 
-if st.button("🚀 Generar con Enlaces Directos"):
+if st.button("🚀 Generar Excels"):
     if opcion == "--- Seleccionar Todo ---":
         progreso = st.progress(0)
         paises = list(FEEDS.items())
@@ -77,13 +80,13 @@ if st.button("🚀 Generar con Enlaces Directos"):
                 if df_res is not None:
                     excel_bin = convertir_a_excel(df_res)
                     st.download_button(
-                        label=f"⬇️ Descargar {nombre}",
+                        label=f"⬇️ Descargar Excel {nombre}",
                         data=excel_bin,
                         file_name=f"feed_{nombre.split(' ')[0]}.xlsx",
                         key=f"btn_{nombre}"
                     )
             progreso.progress((i + 1) / len(paises))
-        st.success("✅ ¡Proceso completado!")
+        st.success("✅ ¡Todos los feeds han sido procesados!")
         
     else:
         with st.spinner(f"Construyendo enlaces para {opcion}..."):
@@ -96,10 +99,7 @@ if st.button("🚀 Generar con Enlaces Directos"):
                     file_name=f"feed_{opcion.split(' ')[0]}.xlsx"
                 )
 
-# Sección de Ayuda integrada
-with st.expander("❓ Notas de esta versión"):
-    st.info("""
-    - **Enlaces directos:** La columna 'link' ahora incluye automáticamente el dominio del país.
-    - **Limpieza:** Se eliminan barras diagonales duplicadas al inicio de las rutas.
-    - **Formato:** Los archivos se generan en .xlsx (Excel).
-    """)
+# Notas informativas para el usuario
+with st.expander("ℹ️ Información sobre los enlaces"):
+    st.write("Los enlaces de la columna **link** se han generado siguiendo estas reglas:")
+    st.table(pd.DataFrame.from_dict(DOMINIOS, orient='index', columns=['URL Base']))
