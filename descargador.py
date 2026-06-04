@@ -7,7 +7,7 @@ import io
 st.set_page_config(page_title="Cecotec Feed Downloader", page_icon="⚡")
 
 st.title("📦 Cecotec Feed Downloader Pro")
-st.markdown("Generación de archivos Excel con enlaces directos optimizados.")
+st.markdown("Generación de archivos Excel por países con enlaces directos optimizados a productos creados en web.")
 
 # Origen de datos
 FEEDS = {
